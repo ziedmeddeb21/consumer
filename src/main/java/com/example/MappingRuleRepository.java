@@ -21,9 +21,7 @@ public class MappingRuleRepository {
         MongoCollection<Document> collection = database.getCollection("mapping_rules");
         Document document = new Document()
                 .append("field_type", mappingRule.field_type)
-                .append("source_Node", mappingRule.source_Node)
                 .append("source_field", mappingRule.source_field)
-                .append("target_Node", mappingRule.target_Node)
                 .append("target_field", mappingRule.target_field);
 
         collection.insertOne(document);

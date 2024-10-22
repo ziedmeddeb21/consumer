@@ -15,7 +15,7 @@ public class MappingRuleService {
     public void createMappingRule(MappingRule mappingRule) {
         // Create a new mapping rule
         mappingRuleRepository.addMappingRule(mappingRule);
-        System.out.println("Mapping Rule created: " + mappingRule.field_type + " " + mappingRule.source_Node + " " + mappingRule.source_field + " " + mappingRule.target_Node + " " + mappingRule.target_field);
+        System.out.println("Mapping Rule created: " + mappingRule.field_type +  " " + mappingRule.source_field + " " + mappingRule.target_field);
 
 
     }
