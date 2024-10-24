@@ -38,7 +38,7 @@ public class MovieService {
             String targetField = mappingRule.getString("target_field");
             if (mappingRule.getBoolean("isKeyVal")) {
                 //get the key and the value from the source
-                String key = sourceField.substring(sourceField.lastIndexOf('/') + 1);
+                String key = targetField.substring(targetField.lastIndexOf('/') + 1);
                 JsonNode value = movieJson.at(sourceField);
                 System.out.println("Key: " + key);
                 System.out.println("Value: " + value);
@@ -47,16 +47,13 @@ public class MovieService {
                 targetJson.put("value", value);
                 System.out.println("Target Json: " + targetJson);
 
-                arrayKeyVal.add(targetJson);
-                System.out.println("Target array: " + arrayKeyVal);
-
-
                 // Split the target field path into components
                 String[] targetPathComponents = targetField.split("/");
                 // Navigate or create the necessary nodes in the transformedMovie
                 //example /inf/metadata/title      Note: the one before the last element is the array name
                 ObjectNode currentNode = transformedMovie;
-                for (int i = 1; i < targetPathComponents.length - 1; i++) {
+                int i;
+                for ( i = 1; i < targetPathComponents.length - 1; i++) {
                     //if we reach the array name we stop the loop
                     if(i == targetPathComponents.length - 2){
                         break;
@@ -67,6 +64,21 @@ public class MovieService {
                     }
                     currentNode = (ObjectNode) currentNode.get(pathComponent);
                 }
+                //check if we're adding a new key value pair to an existing array
+                //if yes we add it directly
+                if(currentNode.has(targetPathComponents[i])){
+                    arrayKeyVal.add(targetJson);
+                }
+                //if not we reset the array to null and add the key value pair
+                else{
+                    arrayKeyVal = objectMapper.createArrayNode();
+                    arrayKeyVal.add(targetJson);
+                }
+
+                System.out.println("Target array: " + arrayKeyVal);
+
+
+
                 //we create lastly the array and add the key value pair elements
                 currentNode.set(targetPathComponents[targetPathComponents.length - 2], arrayKeyVal);
 

@@ -23,7 +23,9 @@ public class MappingRuleRepository {
                 .append("field_type", mappingRule.field_type)
                 .append("source_field", mappingRule.source_field)
                 .append("target_field", mappingRule.target_field)
-                .append("isArray", mappingRule.isArray);
+                .append("isArray", mappingRule.isArray)
+                        .append("isKeyVal", mappingRule.isKeyVal);
+
 
         collection.insertOne(document);
     }
