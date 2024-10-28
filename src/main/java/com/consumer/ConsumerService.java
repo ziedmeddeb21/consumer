@@ -12,7 +12,6 @@ import org.bson.Document;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.jboss.logging.Logger;
 
-import java.util.Arrays;
 import java.util.List;
 
 @ApplicationScoped
@@ -27,20 +26,19 @@ public class ConsumerService {
 
     @Incoming("json-in")
     public void receive(String payload) throws JsonProcessingException {
-        mapPayload(payload);
+        mapPayload(payload, getAllMappingRules());
 
     }
 
-    public void mapPayload(String payload) throws JsonProcessingException {
+    public ObjectNode mapPayload(String payload ,List<Document> allRules) throws JsonProcessingException {
         System.out.println("Payload: " + payload);
 
         ObjectMapper objectMapper = new ObjectMapper();
         JsonNode payloadJson = objectMapper.readTree(payload);
-        List<Document> allMappingRules = mappingRuleService.getAllMappingRules();
         ObjectNode transformedPayload = objectMapper.createObjectNode();
         ArrayNode arrayKeyVal = objectMapper.createArrayNode();
 
-        for (Document mappingRule : allMappingRules) {
+        for (Document mappingRule : allRules) {
             String sourceField = mappingRule.getString("source_field");
             String targetField = mappingRule.getString("target_field");
             boolean isKeyVal = mappingRule.getBoolean("isKeyVal");
@@ -57,12 +55,18 @@ public class ConsumerService {
         }
 
         System.out.println("transformedPayload: " + transformedPayload);
-        consumerRepository.addpayload(transformedPayload);
         logger.infof("Transformed payload: %s", transformedPayload);
+        consumerRepository.addpayload(transformedPayload);
+        return transformedPayload;
+
     }
 
     private void handleKeyValMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, ArrayNode arrayKeyVal, String sourceField, String targetField) {
         String[] targetPathComponents = targetField.split("/");
+        // key is the default name for the key field
+        // keyName is the custom name of the key field
+        // valName is the custom name of the value field
+        // example /inf/metadata/title/newKeyName/newKeyVal     Note: the one before the last element is the array name
         String key = targetPathComponents[targetPathComponents.length - 3];
         String keyName = targetPathComponents[targetPathComponents.length - 2];
         String valName = targetPathComponents[targetPathComponents.length - 1];
@@ -72,16 +76,16 @@ public class ConsumerService {
         targetJson.set(valName, value);
 
 
-        ObjectNode currentNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, 1);
+        ObjectNode currentNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 4);
 
-        if (currentNode.has(targetPathComponents[1])) {
+        if (currentNode.has(targetPathComponents[targetPathComponents.length - 3])) {
             arrayKeyVal.add(targetJson);
         } else {
             arrayKeyVal = objectMapper.createArrayNode();
             arrayKeyVal.add(targetJson);
         }
 
-        currentNode.set(targetPathComponents[1], arrayKeyVal);
+        currentNode.set(targetPathComponents[targetPathComponents.length - 4], arrayKeyVal);
     }
 
     private void handleArrayMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField) {
@@ -125,6 +129,10 @@ public class ConsumerService {
             currentNode = (ObjectNode) currentNode.get(pathComponent);
         }
         return currentNode;
+    }
+
+    private List<Document> getAllMappingRules() {
+        return mappingRuleService.getAllMappingRules();
     }
 
 

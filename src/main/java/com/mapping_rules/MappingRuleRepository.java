@@ -17,7 +17,7 @@ public class MappingRuleRepository {
     @Inject
     MongoClient mongoClient;
 
-    public void addMappingRule(MappingRule mappingRule) {
+    public Document addMappingRule(MappingRule mappingRule) {
         // Add a new mapping rule
         MongoDatabase database = mongoClient.getDatabase("test_db");
         MongoCollection<Document> collection = database.getCollection("mapping_rules");
@@ -27,6 +27,7 @@ public class MappingRuleRepository {
         Document document = Document.parse(objectNode.toString());
 
         collection.insertOne(document);
+        return document;
     }
 
     public List<Document> getMappingRule() {

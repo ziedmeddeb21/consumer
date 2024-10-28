@@ -15,11 +15,10 @@ public class MappingRuleService {
 
     public final Logger logger = Logger.getLogger(MappingRuleService.class);
 
-    public void createMappingRule(MappingRule mappingRule) {
+    public Document createMappingRule(MappingRule mappingRule) {
+        logger.infof("Mapping rule: %s", mappingRule);
         // Create a new mapping rule
-        mappingRuleRepository.addMappingRule(mappingRule);
-        logger.infof("Mapping rule created: %s", mappingRule);
-
+        return mappingRuleRepository.addMappingRule(mappingRule);
 
     }
 
