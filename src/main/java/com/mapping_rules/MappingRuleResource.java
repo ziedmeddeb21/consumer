@@ -1,4 +1,4 @@
-package com.example;
+package com.mapping_rules;
 
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;

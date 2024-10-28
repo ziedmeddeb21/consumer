@@ -1,5 +1,7 @@
-package com.example;
+package com.mapping_rules;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -19,13 +21,10 @@ public class MappingRuleRepository {
         // Add a new mapping rule
         MongoDatabase database = mongoClient.getDatabase("test_db");
         MongoCollection<Document> collection = database.getCollection("mapping_rules");
-        Document document = new Document()
-                .append("field_type", mappingRule.field_type)
-                .append("source_field", mappingRule.source_field)
-                .append("target_field", mappingRule.target_field)
-                .append("isArray", mappingRule.isArray)
-                        .append("isKeyVal", mappingRule.isKeyVal);
 
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode objectNode = mapper.convertValue(mappingRule, ObjectNode.class);
+        Document document = Document.parse(objectNode.toString());
 
         collection.insertOne(document);
     }
