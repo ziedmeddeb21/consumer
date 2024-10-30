@@ -5,14 +5,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.mapping_rules.MappingRuleService;
+import com.mappingRules.MappingRuleService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.bson.Document;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.jboss.logging.Logger;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 @ApplicationScoped
 public class ConsumerService {
@@ -23,6 +26,7 @@ public class ConsumerService {
     MappingRuleService mappingRuleService;
 
     private final Logger logger = Logger.getLogger(ConsumerService.class);
+    ArrayNode arrayKeyVal;
 
     @Incoming("json-in")
     public void receive(String payload) throws JsonProcessingException {
@@ -36,7 +40,7 @@ public class ConsumerService {
         ObjectMapper objectMapper = new ObjectMapper();
         JsonNode payloadJson = objectMapper.readTree(payload);
         ObjectNode transformedPayload = objectMapper.createObjectNode();
-        ArrayNode arrayKeyVal = objectMapper.createArrayNode();
+
 
         for (Document mappingRule : allRules) {
             String sourceField = mappingRule.getString("source_field");
@@ -46,27 +50,21 @@ public class ConsumerService {
             boolean isArray = mappingRule.getBoolean("isArray");
 
             if (isKeyVal) {
-                handleKeyValMapping(objectMapper, payloadJson, transformedPayload, arrayKeyVal, sourceField, targetField);
+                handleKeyValMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField);
             } else if (belongsToArray) {
                 handleArrayMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField);
             } else {
                 handleStandardMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, isArray);
             }
         }
-
-        System.out.println("transformedPayload: " + transformedPayload);
         logger.infof("Transformed payload: %s", transformedPayload);
         consumerRepository.addpayload(transformedPayload);
         return transformedPayload;
 
     }
 
-    private void handleKeyValMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, ArrayNode arrayKeyVal, String sourceField, String targetField) {
+    private void handleKeyValMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField) {
         String[] targetPathComponents = targetField.split("/");
-        // key is the default name for the key field
-        // keyName is the custom name of the key field
-        // valName is the custom name of the value field
-        // example /inf/metadata/title/newKeyName/newKeyVal     Note: the one before the last element is the array name
         String key = targetPathComponents[targetPathComponents.length - 3];
         String keyName = targetPathComponents[targetPathComponents.length - 2];
         String valName = targetPathComponents[targetPathComponents.length - 1];
@@ -74,18 +72,31 @@ public class ConsumerService {
         ObjectNode targetJson = objectMapper.createObjectNode();
         targetJson.put(keyName, key);
         targetJson.set(valName, value);
-
-
+//        System.out.println("currentKeyval before adding"+arrayKeyVal);
         ObjectNode currentNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 4);
-
-        if (currentNode.has(targetPathComponents[targetPathComponents.length - 3])) {
+//        System.out.println("cuurentNode"+currentNode);
+        System.out.println("\n-----------------------------------------------------------\ntargetPathComponents : "+ Arrays.toString(targetPathComponents));
+        System.out.println("cuurent Path : "+targetPathComponents[targetPathComponents.length - 4]);
+        //exp /inf/metadata(1)/motifOperation(2)/field_code(3)/field_value(4)     length=5-3=2  5-4=1
+        if (currentNode.has(targetPathComponents[targetPathComponents.length - 4])) {
+            System.out.println("yes it has");
             arrayKeyVal.add(targetJson);
-        } else {
+//            System.out.println("currentKeyval after adding"+arrayKeyVal);
+
+        }
+        else {
+            System.out.println("no reset");
             arrayKeyVal = objectMapper.createArrayNode();
             arrayKeyVal.add(targetJson);
+
+//            System.out.println("currentKeyval reset "+arrayKeyVal);
         }
+        System.out.println("ArrayKeyVal : "+arrayKeyVal);
+        System.out.println("\ncuurentNode before changing : "+currentNode);
 
         currentNode.set(targetPathComponents[targetPathComponents.length - 4], arrayKeyVal);
+
+        System.out.println("\ncuurentNode : "+currentNode);
     }
 
     private void handleArrayMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField) {
@@ -120,16 +131,16 @@ public class ConsumerService {
     }
 
     private ObjectNode navigateToNode(ObjectMapper objectMapper, ObjectNode rootNode, String[] pathComponents, int endIndex) {
-        ObjectNode currentNode = rootNode;
-        for (int i = 1; i < endIndex; i++) {
-            String pathComponent = pathComponents[i];
-            if (!currentNode.has(pathComponent)) {
-                currentNode.set(pathComponent, objectMapper.createObjectNode());
-            }
-            currentNode = (ObjectNode) currentNode.get(pathComponent);
+    AtomicReference<ObjectNode> currentNode = new AtomicReference<>(rootNode);
+    IntStream.range(1, endIndex).forEach(i -> {
+        String pathComponent = pathComponents[i];
+        if (!currentNode.get().has(pathComponent)) {
+            currentNode.get().set(pathComponent, objectMapper.createObjectNode());
         }
-        return currentNode;
-    }
+        currentNode.set((ObjectNode) currentNode.get().get(pathComponent));
+    });
+    return currentNode.get();
+}
 
     private List<Document> getAllMappingRules() {
         return mappingRuleService.getAllMappingRules();

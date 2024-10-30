@@ -1,4 +1,4 @@
-package com.mapping_rules;
+package com.mappingRules;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -18,7 +18,7 @@ public class MappingRuleService {
     public Document createMappingRule(MappingRule mappingRule) {
         logger.infof("Mapping rule: %s", mappingRule);
         // Create a new mapping rule
-        return mappingRuleRepository.addMappingRule(mappingRule);
+         return mappingRuleRepository.addMappingRule(mappingRule);
 
     }
 

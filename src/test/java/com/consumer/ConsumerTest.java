@@ -1,11 +1,8 @@
 package com.consumer;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.mapping_rules.MappingRuleService;
 import io.quarkus.test.junit.QuarkusTest;
-import jakarta.inject.Inject;
 import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,7 +33,6 @@ public class ConsumerTest {
 
     @Test
     public void testMapPayload() throws Exception {
-        // Arrange
         String json = "{\"name\":\"test\",\"value\":123,\"messages\":[{\"from\":\"zied\",\"to\":\"iheb\",\"message\":\"hello\"},{\"from\":\"iheb\",\"to\":\"zied\",\"message\":\"wassup\"}],\"metadata\":{\"title\":\"Batman\",\"year\":2013}}";
         List<Document> allMappingRules = new ArrayList<>();
         allMappingRules.add(new Document("source_field", "/name")
@@ -80,10 +76,8 @@ public class ConsumerTest {
                 .append("belongsToArray", false)
                 .append("isArray", false));
 
-        // Act
         ObjectNode transformedPayload = consumerService.mapPayload(json, allMappingRules);
 
-        // Assert
         assertTrue(transformedPayload.has("nom"));
         assertTrue(transformedPayload.get("nom").asText().equals("test"));
         assertTrue(transformedPayload.has("val"));

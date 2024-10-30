@@ -1,7 +1,9 @@
-package com.mapping_rules;
+package com.mappingRules;
 
 
 public class MappingRule {
+
+    private String id;
     public String source_field;
     public String target_field;
     public boolean isArray;
