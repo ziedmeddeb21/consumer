@@ -72,31 +72,20 @@ public class ConsumerService {
         ObjectNode targetJson = objectMapper.createObjectNode();
         targetJson.put(keyName, key);
         targetJson.set(valName, value);
-//        System.out.println("currentKeyval before adding"+arrayKeyVal);
         ObjectNode currentNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 4);
-//        System.out.println("cuurentNode"+currentNode);
-        System.out.println("\n-----------------------------------------------------------\ntargetPathComponents : "+ Arrays.toString(targetPathComponents));
-        System.out.println("cuurent Path : "+targetPathComponents[targetPathComponents.length - 4]);
+
         //exp /inf/metadata(1)/motifOperation(2)/field_code(3)/field_value(4)     length=5-3=2  5-4=1
         if (currentNode.has(targetPathComponents[targetPathComponents.length - 4])) {
-            System.out.println("yes it has");
             arrayKeyVal.add(targetJson);
-//            System.out.println("currentKeyval after adding"+arrayKeyVal);
-
         }
         else {
-            System.out.println("no reset");
             arrayKeyVal = objectMapper.createArrayNode();
             arrayKeyVal.add(targetJson);
 
-//            System.out.println("currentKeyval reset "+arrayKeyVal);
         }
-        System.out.println("ArrayKeyVal : "+arrayKeyVal);
-        System.out.println("\ncuurentNode before changing : "+currentNode);
 
         currentNode.set(targetPathComponents[targetPathComponents.length - 4], arrayKeyVal);
 
-        System.out.println("\ncuurentNode : "+currentNode);
     }
 
     private void handleArrayMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField) {
@@ -105,14 +94,25 @@ public class ConsumerService {
         String arrayPath = sourceField.substring(0, sourceField.lastIndexOf('/'));
         ArrayNode array = (ArrayNode) payloadJson.at(arrayPath);
         ArrayNode newArray = objectMapper.createArrayNode();
-
-        for (JsonNode node : array) {
-            ObjectNode currentNode = (ObjectNode) node;
-            JsonNode value = currentNode.get(fieldName);
-            currentNode.remove(fieldName);
-            currentNode.set(targetFieldName, value);
-            newArray.add(currentNode);
+        System.out.println("array path : "+arrayPath);
+        System.out.println("array : "+array);
+        //  cas particulier pour les listes qui ont des simples strings
+        if(fieldName.equals("*")){
+            newArray.addAll(array);
         }
+        else{
+
+            for (JsonNode node : array) {
+                ObjectNode currentNode = (ObjectNode) node;
+                JsonNode value = currentNode.get(fieldName);
+                currentNode.remove(fieldName);
+                currentNode.set(targetFieldName, value);
+                newArray.add(currentNode);
+            }
+
+
+        }
+
 
         String[] targetPathComponents = targetField.substring(0, targetField.lastIndexOf('/')).split("/");
         ObjectNode navigatedNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 1);
