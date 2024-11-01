@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import com.mappingRules.MappingRuleService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -12,6 +13,9 @@ import org.bson.Document;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.jboss.logging.Logger;
 
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -35,10 +39,12 @@ public class ConsumerService {
     }
 
     public ObjectNode mapPayload(String payload ,List<Document> allRules) throws JsonProcessingException {
-        System.out.println("Payload: " + payload);
+//        System.out.println("Payload: " + payload);
 
         ObjectMapper objectMapper = new ObjectMapper();
         JsonNode payloadJson = objectMapper.readTree(payload);
+        // i used this because the original payload can be modified
+        JsonNode payloadJsonCopy = payloadJson.deepCopy();
         ObjectNode transformedPayload = objectMapper.createObjectNode();
 
 
@@ -48,13 +54,14 @@ public class ConsumerService {
             boolean isKeyVal = mappingRule.getBoolean("isKeyVal");
             boolean belongsToArray = mappingRule.getBoolean("belongsToArray");
             boolean isArray = mappingRule.getBoolean("isArray");
-
+            String script = mappingRule.getString("script");
+            Object defaultValue = mappingRule.get("defaultValue");
             if (isKeyVal) {
-                handleKeyValMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField);
+                handleKeyValMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, script, defaultValue, payloadJsonCopy);
             } else if (belongsToArray) {
-                handleArrayMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField);
+                handleArrayMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, script);
             } else {
-                handleStandardMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, isArray);
+                handleStandardMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, isArray, script);
             }
         }
         logger.infof("Transformed payload: %s", transformedPayload);
@@ -63,12 +70,37 @@ public class ConsumerService {
 
     }
 
-    private void handleKeyValMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField) {
+    private void handleKeyValMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, String script,Object defaultValue , JsonNode payloadJsonCopy) {
         String[] targetPathComponents = targetField.split("/");
         String key = targetPathComponents[targetPathComponents.length - 3];
         String keyName = targetPathComponents[targetPathComponents.length - 2];
         String valName = targetPathComponents[targetPathComponents.length - 1];
-        JsonNode value = payloadJson.at(sourceField);
+        JsonNode value;
+        if(defaultValue != null){
+            value = objectMapper.valueToTree(defaultValue);
+        }
+        else if(script == null){
+            value = payloadJson.at(sourceField);
+
+        }
+        else{
+            try {
+                System.out.println("\n--------------------------------------------------\nscript : "+script);
+                Object result = executeScript(script, payloadJsonCopy);
+//                System.out.println("\n----------------------------------------------\n payloadScript : "+payloadJson);
+                if (result instanceof String) {
+                    value = new TextNode((String) result);
+                } else {
+                    value = objectMapper.valueToTree(result);
+                }
+                System.out.println("\nscript value : "+value);
+            } catch (ScriptException e) {
+                e.printStackTrace();
+                return;
+            }
+        }
+
+
         ObjectNode targetJson = objectMapper.createObjectNode();
         targetJson.put(keyName, key);
         targetJson.set(valName, value);
@@ -88,14 +120,17 @@ public class ConsumerService {
 
     }
 
-    private void handleArrayMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField) {
+    private void handleArrayMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, String script) {
         String fieldName = sourceField.split("/")[sourceField.split("/").length - 1];
         String targetFieldName = targetField.split("/")[targetField.split("/").length - 1];
         String arrayPath = sourceField.substring(0, sourceField.lastIndexOf('/'));
         ArrayNode array = (ArrayNode) payloadJson.at(arrayPath);
+
+
+
         ArrayNode newArray = objectMapper.createArrayNode();
-        System.out.println("array path : "+arrayPath);
-        System.out.println("array : "+array);
+//        System.out.println("array path : "+arrayPath);
+//        System.out.println("array : "+array);
         //  cas particulier pour les listes qui ont des simples strings
         if(fieldName.equals("*")){
             newArray.addAll(array);
@@ -113,13 +148,16 @@ public class ConsumerService {
 
         }
 
+// auth keyclaok
+        // menu parametrage gere les mapping rules
+        // input output;
 
         String[] targetPathComponents = targetField.substring(0, targetField.lastIndexOf('/')).split("/");
         ObjectNode navigatedNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 1);
         navigatedNode.set(targetPathComponents[targetPathComponents.length - 1], newArray);
     }
 
-    private void handleStandardMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, boolean isArray) {
+    private void handleStandardMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, boolean isArray, String script) {
         String[] targetPathComponents = targetField.split("/");
         ObjectNode currentNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 1);
 
@@ -144,6 +182,13 @@ public class ConsumerService {
 
     private List<Document> getAllMappingRules() {
         return mappingRuleService.getAllMappingRules();
+    }
+
+    public Object executeScript(String script, JsonNode payload) throws ScriptException {
+        ScriptEngineManager manager = new ScriptEngineManager();
+        ScriptEngine engine = manager.getEngineByName("nashorn");
+        engine.put("payload", payload);
+        return engine.eval(script);
     }
 
 

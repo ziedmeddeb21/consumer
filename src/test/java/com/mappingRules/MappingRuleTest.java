@@ -89,7 +89,7 @@ public class MappingRuleTest  {
 
     @Test
     public void testCreateMappingRule() throws Exception {
-        MappingRule mockRule = new MappingRule(true, "source", "target", false, false);
+        MappingRule mockRule = new MappingRule(true, "source", "target", false, false,  null,null);
         ObjectMapper mapper = new ObjectMapper();
 
         Mockito.when(mappingRuleRepository.addMappingRule(Mockito.any(MappingRule.class))).thenAnswer(invocation -> {

@@ -10,15 +10,19 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
 @QuarkusTest
 public class ConsumerTest {
-
+    private ScriptEngine engine;
     @InjectMocks
     ConsumerService consumerService;
 
@@ -29,6 +33,9 @@ public class ConsumerTest {
     @BeforeEach
     public void setUp() {
         MockitoAnnotations.openMocks(this);
+        ScriptEngineManager manager = new ScriptEngineManager();
+        engine = manager.getEngineByName("nashorn");
+
     }
 
     @Test
@@ -108,6 +115,21 @@ public class ConsumerTest {
         assertTrue(transformedPayload.get("inf").has("annee"));
         verify(consumerRepository, times(1)).addpayload(any());
     }
+
+    @Test
+    public void testNashornScript() throws ScriptException {
+        String script = "var payload = '{\"name\":\"John\", \"age\":30}';" +
+                "var transformedPayload = JSON.parse(payload);" +
+                "transformedPayload.name = 'Jane';" +
+                "transformedPayload.age = 25;" +
+                "JSON.stringify(transformedPayload);";
+
+        Object result = engine.eval(script);
+        String expected = "{\"name\":\"Jane\",\"age\":25}";
+
+        assertEquals(expected, result);
+    }
+
 
 
 }
