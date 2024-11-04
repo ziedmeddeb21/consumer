@@ -45,6 +45,7 @@ public class ConsumerService {
         JsonNode payloadJson = objectMapper.readTree(payload);
         // i used this because the original payload can be modified
         JsonNode payloadJsonCopy = payloadJson.deepCopy();
+        AtomicReference<String> currentArrayPathRef = new AtomicReference<>("");
         ObjectNode transformedPayload = objectMapper.createObjectNode();
 
 
@@ -59,9 +60,9 @@ public class ConsumerService {
             if (isKeyVal) {
                 handleKeyValMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, script, defaultValue, payloadJsonCopy);
             } else if (belongsToArray) {
-                handleArrayMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, script);
+                handleArrayMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, script , defaultValue, currentArrayPathRef, payloadJsonCopy);
             } else {
-                handleStandardMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, isArray, script);
+                handleStandardMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, isArray, script , defaultValue);
             }
         }
         logger.infof("Transformed payload: %s", transformedPayload);
@@ -85,15 +86,15 @@ public class ConsumerService {
         }
         else{
             try {
-                System.out.println("\n--------------------------------------------------\nscript : "+script);
+//                System.out.println("\n--------------------------------------------------\nscript : "+script);
                 Object result = executeScript(script, payloadJsonCopy);
-//                System.out.println("\n----------------------------------------------\n payloadScript : "+payloadJson);
+
                 if (result instanceof String) {
                     value = new TextNode((String) result);
                 } else {
                     value = objectMapper.valueToTree(result);
                 }
-                System.out.println("\nscript value : "+value);
+//                System.out.println("\nscript value : "+value);
             } catch (ScriptException e) {
                 e.printStackTrace();
                 return;
@@ -120,51 +121,93 @@ public class ConsumerService {
 
     }
 
-    private void handleArrayMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, String script) {
+    private void handleArrayMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, String script, Object defaultValue, AtomicReference<String> currentArrayPathRef, JsonNode payloadJsonCopy) {
         String fieldName = sourceField.split("/")[sourceField.split("/").length - 1];
         String targetFieldName = targetField.split("/")[targetField.split("/").length - 1];
         String arrayPath = sourceField.substring(0, sourceField.lastIndexOf('/'));
+        boolean isNewArray = false;
         ArrayNode array = (ArrayNode) payloadJson.at(arrayPath);
-
-
+        ArrayNode arrayCopy = (ArrayNode) payloadJsonCopy.at(arrayPath);
+        // here im keeping track if the array path has changed
+        if (!currentArrayPathRef.get().equals(arrayPath)) {
+            currentArrayPathRef.set(arrayPath);
+            isNewArray = true;
+        }
 
         ArrayNode newArray = objectMapper.createArrayNode();
-//        System.out.println("array path : "+arrayPath);
-//        System.out.println("array : "+array);
-        //  cas particulier pour les listes qui ont des simples strings
-        if(fieldName.equals("*")){
-            newArray.addAll(array);
-        }
-        else{
 
-            for (JsonNode node : array) {
-                ObjectNode currentNode = (ObjectNode) node;
-                JsonNode value = currentNode.get(fieldName);
+        if (fieldName.equals("*")) {
+            newArray.addAll(array);
+        } else {
+            for (int i = 0; i < array.size(); i++) {
+                ObjectNode currentNode = (ObjectNode) array.get(i);
+                ObjectNode currentNodeCopy = (ObjectNode) arrayCopy.get(i);
+
+                if (isNewArray) {
+                    currentNode.removeAll();
+                }
+
+                JsonNode value;
+                if (defaultValue != null) {
+                    value = objectMapper.valueToTree(defaultValue);
+                } else if (script != null) {
+                    try {
+                        Object result = executeScript(script, currentNodeCopy);
+                        if (result instanceof String) {
+                            value = new TextNode((String) result);
+                        } else {
+                            value = objectMapper.valueToTree(result);
+                        }
+                    } catch (ScriptException e) {
+                        e.printStackTrace();
+                        return;
+                    }
+                } else {
+                    value = currentNodeCopy.get(fieldName); // Retrieve data from the copy
+                }
+
                 currentNode.remove(fieldName);
                 currentNode.set(targetFieldName, value);
                 newArray.add(currentNode);
             }
-
-
         }
-
-// auth keyclaok
-        // menu parametrage gere les mapping rules
-        // input output;
 
         String[] targetPathComponents = targetField.substring(0, targetField.lastIndexOf('/')).split("/");
         ObjectNode navigatedNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 1);
         navigatedNode.set(targetPathComponents[targetPathComponents.length - 1], newArray);
     }
-
-    private void handleStandardMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, boolean isArray, String script) {
+    private void handleStandardMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, boolean isArray, String script, Object defaultValue) {
         String[] targetPathComponents = targetField.split("/");
         ObjectNode currentNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 1);
 
         if (isArray) {
             currentNode.set(targetPathComponents[targetPathComponents.length - 1], objectMapper.createArrayNode());
         } else {
-            currentNode.set(targetPathComponents[targetPathComponents.length - 1], payloadJson.at(sourceField));
+            if( defaultValue != null){
+                currentNode.set(targetPathComponents[targetPathComponents.length - 1],  objectMapper.valueToTree(defaultValue));
+            }
+            else if (script != null){
+
+                try {
+                    JsonNode value;
+//                System.out.println("\n--------------------------------------------------\nscript : "+script);
+                    Object result = executeScript(script, payloadJson);
+//                System.out.println("\n----------------------------------------------\n payloadScript : "+payloadJson);
+                    if (result instanceof String) {
+                        value = new TextNode((String) result);
+                    } else {
+                        value = objectMapper.valueToTree(result);
+                    }
+                    currentNode.set(targetPathComponents[targetPathComponents.length - 1], value);
+//                System.out.println("\nscript value : "+value);
+                } catch (ScriptException e) {
+                    e.printStackTrace();
+                    return;
+                }
+            }
+            else {
+                currentNode.set(targetPathComponents[targetPathComponents.length - 1], payloadJson.at(sourceField));
+            }
         }
     }
 
