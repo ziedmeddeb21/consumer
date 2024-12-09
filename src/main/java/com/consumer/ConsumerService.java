@@ -10,6 +10,8 @@ import com.mappingRules.MappingRuleService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.bson.Document;
+import org.eclipse.microprofile.reactive.messaging.Channel;
+import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.jboss.logging.Logger;
 
@@ -30,24 +32,32 @@ public class ConsumerService {
     MappingRuleService mappingRuleService;
 
     private final Logger logger = Logger.getLogger(ConsumerService.class);
+    ObjectMapper objectMapper = new ObjectMapper();
     ArrayNode arrayKeyVal;
-
+    @Inject
+    @Channel("output")
+    Emitter<String> emitter;
     @Incoming("json-in")
+
+
     public void receive(String payload) throws JsonProcessingException {
-        mapPayload(payload, getAllMappingRules());
+        JsonNode initialPayload = objectMapper.readTree(payload);
+        JsonNode payloadJson = initialPayload.get("content");
+
+        String collectionName = initialPayload.get("collectionName").asText();
+        System.out.println("collection name: "+collectionName);
+        mapPayload(payloadJson, getAllMappingRules(collectionName));
 
     }
 
-    public ObjectNode mapPayload(String payload ,List<Document> allRules) throws JsonProcessingException {
+    public ObjectNode mapPayload(JsonNode payloadJson ,List<Document> allRules) throws JsonProcessingException {
 //        System.out.println("Payload: " + payload);
-
-        ObjectMapper objectMapper = new ObjectMapper();
-        JsonNode payloadJson = objectMapper.readTree(payload);
-        // i used this because the original payload can be modified
+        try{
+        // I used this because the original payload can be modified
         JsonNode payloadJsonCopy = payloadJson.deepCopy();
         AtomicReference<String> currentArrayPathRef = new AtomicReference<>("");
         ObjectNode transformedPayload = objectMapper.createObjectNode();
-
+//        System.out.println("\n--------------------------------------------\nmapping rules: "+allRules );
 
         for (Document mappingRule : allRules) {
             String sourceField = mappingRule.getString("source_field");
@@ -57,6 +67,13 @@ public class ConsumerService {
             boolean isArray = mappingRule.getBoolean("isArray");
             String script = mappingRule.getString("script");
             Object defaultValue = mappingRule.get("defaultValue");
+
+            if(!isMappingRuleSuitable(payloadJsonCopy,sourceField,belongsToArray)){
+                emitter.send("Mapping rule not suitable for source field: " + sourceField);
+                break;
+            }
+
+
             if (isKeyVal) {
                 handleKeyValMapping(objectMapper, payloadJson, transformedPayload, sourceField, targetField, script, defaultValue, payloadJsonCopy);
             } else if (belongsToArray) {
@@ -67,61 +84,55 @@ public class ConsumerService {
         }
         logger.infof("Transformed payload: %s", transformedPayload);
         consumerRepository.addpayload(transformedPayload);
-        return transformedPayload;
+        emitter.send(objectMapper.writeValueAsString(transformedPayload));
+        return transformedPayload;}
+        catch (Exception e){
+            e.printStackTrace();
+            emitter.send("Exception occurred during mapping");
+            return null;
+        }
 
     }
 
-    private void handleKeyValMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, String script,Object defaultValue , JsonNode payloadJsonCopy) {
+    public void handleKeyValMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, String script, Object defaultValue, JsonNode payloadJsonCopy) {
         String[] targetPathComponents = targetField.split("/");
         String key = targetPathComponents[targetPathComponents.length - 3];
         String keyName = targetPathComponents[targetPathComponents.length - 2];
         String valName = targetPathComponents[targetPathComponents.length - 1];
         JsonNode value;
-        if(defaultValue != null){
+        if (defaultValue != null) {
             value = objectMapper.valueToTree(defaultValue);
-        }
-        else if(script == null){
+        } else if (script == null) {
             value = payloadJson.at(sourceField);
-
-        }
-        else{
+        } else {
             try {
-//                System.out.println("\n--------------------------------------------------\nscript : "+script);
                 Object result = executeScript(script, payloadJsonCopy);
-
                 if (result instanceof String) {
                     value = new TextNode((String) result);
                 } else {
                     value = objectMapper.valueToTree(result);
                 }
-//                System.out.println("\nscript value : "+value);
             } catch (ScriptException e) {
                 e.printStackTrace();
                 return;
             }
         }
 
-
         ObjectNode targetJson = objectMapper.createObjectNode();
         targetJson.put(keyName, key);
         targetJson.set(valName, value);
         ObjectNode currentNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 4);
 
-        //exp /inf/metadata(1)/motifOperation(2)/field_code(3)/field_value(4)     length=5-3=2  5-4=1
         if (currentNode.has(targetPathComponents[targetPathComponents.length - 4])) {
-            arrayKeyVal.add(targetJson);
-        }
-        else {
+            arrayKeyVal = (ArrayNode) currentNode.get(targetPathComponents[targetPathComponents.length - 4]);
+        } else {
             arrayKeyVal = objectMapper.createArrayNode();
-            arrayKeyVal.add(targetJson);
-
         }
-
+        arrayKeyVal.add(targetJson);
         currentNode.set(targetPathComponents[targetPathComponents.length - 4], arrayKeyVal);
-
     }
 
-    private void handleArrayMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, String script, Object defaultValue, AtomicReference<String> currentArrayPathRef, JsonNode payloadJsonCopy) {
+    public void handleArrayMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, String script, Object defaultValue, AtomicReference<String> currentArrayPathRef, JsonNode payloadJsonCopy) {
         String fieldName = sourceField.split("/")[sourceField.split("/").length - 1];
         String targetFieldName = targetField.split("/")[targetField.split("/").length - 1];
         String arrayPath = sourceField.substring(0, sourceField.lastIndexOf('/'));
@@ -163,7 +174,7 @@ public class ConsumerService {
                         return;
                     }
                 } else {
-                    value = currentNodeCopy.get(fieldName); // Retrieve data from the copy
+                    value = currentNodeCopy.get(fieldName);
                 }
 
                 currentNode.remove(fieldName);
@@ -176,7 +187,7 @@ public class ConsumerService {
         ObjectNode navigatedNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 1);
         navigatedNode.set(targetPathComponents[targetPathComponents.length - 1], newArray);
     }
-    private void handleStandardMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, boolean isArray, String script, Object defaultValue) {
+    public void handleStandardMapping(ObjectMapper objectMapper, JsonNode payloadJson, ObjectNode transformedPayload, String sourceField, String targetField, boolean isArray, String script, Object defaultValue) {
         String[] targetPathComponents = targetField.split("/");
         ObjectNode currentNode = navigateToNode(objectMapper, transformedPayload, targetPathComponents, targetPathComponents.length - 1);
 
@@ -211,7 +222,7 @@ public class ConsumerService {
         }
     }
 
-    private ObjectNode navigateToNode(ObjectMapper objectMapper, ObjectNode rootNode, String[] pathComponents, int endIndex) {
+    public ObjectNode navigateToNode(ObjectMapper objectMapper, ObjectNode rootNode, String[] pathComponents, int endIndex) {
     AtomicReference<ObjectNode> currentNode = new AtomicReference<>(rootNode);
     IntStream.range(1, endIndex).forEach(i -> {
         String pathComponent = pathComponents[i];
@@ -223,8 +234,10 @@ public class ConsumerService {
     return currentNode.get();
 }
 
-    private List<Document> getAllMappingRules() {
-        return mappingRuleService.getAllMappingRules();
+    public List<Document> getAllMappingRules(String collectionName) {
+        System.out.println("collection name function: "+collectionName);
+
+        return  mappingRuleService.getAllMappingRules(collectionName);
     }
 
     public Object executeScript(String script, JsonNode payload) throws ScriptException {
@@ -234,7 +247,13 @@ public class ConsumerService {
         return engine.eval(script);
     }
 
+    boolean isMappingRuleSuitable(JsonNode payloadJson, String sourceField, boolean belongsToArray) {
+        if(sourceField.endsWith("*") || sourceField.isEmpty() || belongsToArray){
+            return true;
+        }
+        return !payloadJson.at(sourceField).isMissingNode();
 
+    }
 
 
 
